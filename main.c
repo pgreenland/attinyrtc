@@ -3,6 +3,9 @@
 /* Define to have write only test register readable, returning 0xA5 and 0x5A on alternate reads */
 //#define TEST_REG_READ_DUMMY_VALUE
 
+/* Define to output one second line on PB4 rather than PB5 */
+//#define ONE_SECOND_ON_PB4
+
 /* Define to output timing pulses on PB3 */
 //#define TIMING_ENABLED
 
@@ -141,7 +144,11 @@ typedef union
 static const uint8_t uiPinEnable = PB0;
 static const uint8_t uiPinData = PB1;
 static const uint8_t uiPinClock = PB2;
-static const uint8_t uiPinOneSec = PB4; // PB5;
+#ifdef ONE_SECOND_ON_PB4
+static const uint8_t uiPinOneSec = PB4;
+#else
+static const uint8_t uiPinOneSec = PB5;
+#endif
 
 /* Hijack one of the crystal pins for some logic analyzer snoopage */
 #ifdef TIMING_ENABLED
@@ -257,7 +264,7 @@ int main(void)
 	cli();
 
 	/* Set oscillator calibration */
-	OSCCAL = 0x84;
+	//OSCCAL = 0x84;
 
 	/* Disable unused peripherals to save power */
 	powerSaveInit();

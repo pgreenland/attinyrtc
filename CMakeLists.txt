@@ -26,9 +26,9 @@ set(MCU attiny85)
 set(PROG_TYPE usbasp-clone)
 
 # AVR Fuses, must be in concordance with your hardware and F_CPU
-# http://eleccelerator.com/fusecalc/fusecalc.php?chip=atmega328p
+# http://eleccelerator.com/fusecalc/fusecalc.php?chip=attiny85&LOW=E1&HIGH=5F&EXTENDED=FF&LOCKBIT=FF
 set(L_FUSE 0xe1) # 0xa1 (to enable clock output on PB4)
-set(H_FUSE 0xdf) # 0x5f
+set(H_FUSE 0x5f)
 set(E_FUSE 0xff)
 set(LOCK_BIT 0xff)
 
@@ -43,7 +43,7 @@ set(CMAKE_EXE_LINKER_FLAGS "-mmcu=${MCU} -Wl,-Map,${PROJECT_NAME}.map")
 add_compile_options(
 	-mmcu=${MCU} # MCU
 	-std=gnu99 # C99 standard
-	-O2 # optimize
+	-Os # optimize
 	-Wall # enable warnings
 	-Wno-main
 	-Wundef
