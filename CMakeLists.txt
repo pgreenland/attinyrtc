@@ -3,7 +3,7 @@
 cmake_minimum_required(VERSION 3.11)
 
 # Set to build for simulation
-set(BUILD_FOR_SIM ON)
+set(BUILD_FOR_SIM OFF)
 
 # Use AVR GCC toolchain
 set(CMAKE_SYSTEM_NAME Generic)
