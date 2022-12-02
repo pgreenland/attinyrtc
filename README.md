@@ -27,7 +27,7 @@ The Mac SE/30 has a serial clock of 250Khz, requiring a substantial rewrite to g
 
 See my blog for additional notes on how the software works / its development:
 
-[New Timepiece for a Classic Mac - Part 1](http://www.quantulum.co.uk/new-timepiece-for-a-classic-mac-part-1/)
+[New Timepiece for a Classic Mac - Part 1](http://www.quantulum.co.uk/blog/new-timepiece-for-a-classic-mac-part-1/)
 
 ## Building
 
