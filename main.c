@@ -1,5 +1,8 @@
 /* ------- Config ------- */
 
+/* Enable EEPROM - if defined RTC will backup/restore its data to EEPROM, allowing it to be used in a mac without an RTC battery. Disable for authentic RTC behavior */
+#define ENABLE_EEPROM
+
 /* Define to have write only test register readable, returning 0xA5 and 0x5A on alternate reads */
 //#define TEST_REG_READ_DUMMY_VALUE
 
@@ -179,6 +182,9 @@ static const uint8_t uiCounterMatch = 125;
 #define mIsClockHigh() (0 != (PINB & _BV(uiPinClock)))
 #define mIsDataHigh() (0 != (PINB & _BV(uiPinData)))
 
+/* Check if timeout timer has expired */
+#define mSerialTimeout() (0 != (WDTCR & _BV(WDIF)))
+
 /* Check if base address is special extended address value */
 #define mIsAddrExtended(base) (0x38 == ((base) & 0x78))
 
@@ -233,6 +239,8 @@ static void processRegularCmdWrite(uint8_t uiAddrBase, uint8_t uiData);
 static uint8_t processExtendedCmdRead(uint8_t uiAddrBase, uint8_t uiAddrExt);
 static void processExtendedCmdWrite(uint8_t uiAddrBase, uint8_t uiAddrExt, uint8_t uiData);
 
+#ifdef ENABLE_EEPROM
+
 /* PRAM EEPROM buffer */
 __attribute__((section(".eeprom")))
 static uint8_t abyPRAM[PRAM_SIZE] = {0x00};
@@ -241,8 +249,12 @@ static uint8_t abyPRAM[PRAM_SIZE] = {0x00};
 __attribute__((section(".eeprom")))
 static uint32_t uiStoredSeconds = 0;
 
+#endif
+
 /* PRAM shadow buffer (working copy of EEPROM data in RAM) */
 static uint8_t abyPRAMShadow[PRAM_SIZE];
+
+#ifdef ENABLE_EEPROM
 
 /*
 ** Dirty flag - Set when PRAM shadow write protection applied. Ideally this would
@@ -251,6 +263,8 @@ static uint8_t abyPRAMShadow[PRAM_SIZE];
 ** be ok....maybe....hopefully....
 */
 static volatile bool bShadowDirty;
+
+#endif
 
 /* Write protection status */
 static bool bWriteProtected = true;
@@ -273,11 +287,13 @@ int main(void)
 	timerInit();
 	gpioInit();
 
+#ifdef ENABLE_EEPROM
 	/* Load PRAM shadow from EEPROM */
 	eeprom_read_block(abyPRAMShadow, abyPRAM, sizeof(abyPRAMShadow));
 
 	/* Load last time from EEPROM */
 	uSeconds.uiValue = eeprom_read_dword(&uiStoredSeconds);
+#endif
 
 	/* Enable interrupts */
 	sei();
@@ -285,6 +301,7 @@ int main(void)
 	/* Sleep whenever possible, updating EEPROM if dirty */
 	for (;;)
 	{
+#ifdef ENABLE_EEPROM
 		if (bShadowDirty)
 		{
 			/* Clear dirty flag first in case its set again */
@@ -303,6 +320,7 @@ int main(void)
 			/* Update clock in EEPROM from RAM */
 			eeprom_update_dword(&uiStoredSeconds, uiTmpSeconds);
 		}
+#endif
 
 		/* Go back to sleep */
 		sleep_mode();
@@ -349,16 +367,27 @@ ISR(PCINT0_vect)
 	/* Rising edge on enable (chip deselected), stop early */
 	if (mIsEnableHigh())
 	{
+		/* Ensure timing pin reset */
 		mTimingPinHigh();
+
+		/* Disable watchdog interrupt (stopping timer) and clear pending flag */
+		wdt_reset();
+		WDTCR = _BV(WDIF);
+
+		/* Bail */
 		return;
 	}
+
+	/* Reset watchdog and enable interrupt (to start timer) */
+	wdt_reset();
+	WDTCR = _BV(WDIE) | _BV(WDIF);
 
 	/* Falling edge on enable (chip selected), receive address bits */
 	uiBit = 8;
 	while (0 != uiBit)
 	{
 		/* Sample bit on rising edge, while monitoring enable (except after last bit) */
-		while (!mIsClockHigh()) if (mIsEnableHigh()) return;
+		while (!mIsClockHigh()) if (mIsEnableHigh() || mSerialTimeout()) return;
 		mTimingPinLow();
 		uiAddrBase = (uiAddrBase << 1) | mIsDataHigh();
 		mTimingPinHigh();
@@ -375,7 +404,7 @@ ISR(PCINT0_vect)
 		while (0 != uiBit)
 		{
 			/* Sample bit on rising edge, while monitoring enable */
-			while (!mIsClockHigh()) if (mIsEnableHigh()) return;
+			while (!mIsClockHigh()) if (mIsEnableHigh() || mSerialTimeout()) return;
 			mTimingPinLow();
 			uiAddrExt = (uiAddrExt << 1) | mIsDataHigh();
 			mTimingPinHigh();
@@ -393,7 +422,7 @@ ISR(PCINT0_vect)
 		while (0 != uiBit)
 		{
 			/* Sample bit on rising edge, while monitoring enable */
-			while (!mIsClockHigh()) if (mIsEnableHigh()) return;
+			while (!mIsClockHigh()) if (mIsEnableHigh() || mSerialTimeout()) return;
 			mTimingPinLow();
 			uiData = (uiData << 1) | mIsDataHigh();
 			mTimingPinHigh();
@@ -431,43 +460,59 @@ ISR(PCINT0_vect)
 		}
 		mTimingPinHigh();
 
-		/* Send data */
+		/* Send data, cache current DDR value */
+		uint8_t uiDDRVal = DDRB;
+
+		/*
+		** Invert data bits to assist assembly routine
+		** When data bit is 1 we want to set ddr reg bit to 0 and vice versa
+		*/
+		uiData = ~uiData;
+
+		/* Shift out bits */
 		uiBit = 8;
 		while (0 != uiBit)
 		{
 			/* Change data when clock low, before waiting for rising edge, while monitoring enable */
-			while (mIsClockHigh()) if (mIsEnableHigh()) goto AbortSend;
+			while (mIsClockHigh()) if (mIsEnableHigh()) break;
 			mTimingPinLow();
-			if (uiData & 0x80)
-			{
-				/* Switch pin to input mode, allowing it to be pulled up externally */
-				mSetDataPinHigh();
-			}
-			else
-			{
-				/* Switch pin to output mode, pulling it low */
-				mSetDataPinLow();
-			}
+			asm volatile(
+				/* Shift data bit out of data register */
+				"bst %[out], 7\n\t"
+				"bld %[ddrb_tmp], %[data_pin]\n\t"
+				"out %[ddrb], %[ddrb_tmp]\n\t"
+				:
+					/* Outputs */
+					[ddrb_tmp] "+r" (uiDDRVal)
+				:
+					/* Inputs */
+					[out] "r" (uiData),
+					[ddrb] "I" (_SFR_IO_ADDR(DDRB)),
+					[data_pin] "I" (uiPinData)
+				:
+					/* Clobbers - none */
+			);
 			mTimingPinHigh();
 			uiData <<= 1;
 			uiBit--;
-			if (0 != uiBit) while (!mIsClockHigh()) if (mIsEnableHigh()) return;
+			if (0 != uiBit) while (!mIsClockHigh()) if (mIsEnableHigh() || mSerialTimeout()) break;
 		}
 
 		/* Give host a chance to sample last bit, wait for enable to go high */
-		while (!mIsEnableHigh());
+		while (!mIsEnableHigh() && !mSerialTimeout());
 
-		AbortSend:
-			/* Switch pin to input mode, allowing data line to float after completion / abort */
-			mSetDataPinHigh();
+		/* Switch pin to input mode, allowing data line to float after completion / abort */
+		mSetDataPinHigh();
 	}
+}
+
+ISR(WDT_vect)
+{
+	/* Ignore watchdog interrupt, managed by ISR above */
 }
 
 static void powerSaveInit(void)
 {
-	/* Disable watchdog */
-	wdt_disable();
-
 	/* Disable Analog Comparator */
 	ACSR |= _BV(ACD);
 
@@ -571,8 +616,10 @@ static inline void processRegularCmdWrite(uint8_t uiAddrBase, uint8_t uiData)
 		/* Extract new write protect status */
 		bool bNewWriteProtected = mDataByteToWriteProtect(uiData);
 
+#ifdef ENABLE_EEPROM
 		/* Set dirty flag when transitioning from read-write to read-only */
 		if (!bWriteProtected && bNewWriteProtected) bShadowDirty = true;
+#endif
 
 		/* Update write protect flag */
 		bWriteProtected = bNewWriteProtected;

@@ -8,10 +8,9 @@ It therefore doesn't require a battery, storing the PRAM contents in the ATTiny'
 
 It also doesn't require a crystal, using the ATTiny's integrated RC oscillator as its clock source.
 
-One unfortunate limitation that I'm aware of, is that it can't be used in macs which have a RTC battery present.
-This is due to the system shutdown, appearing to the RTC as the start of a transfer, for which it has no timeout mechanism.
-I've previously attempted to add one but timings are already tight and the additional few instructions knocked things out of whack.
-If used in a system with an RTC battery, the clock will not increment while the system is powered down and the battery will likely be depleted faster than expected as the microcontroller will be wide awake waiting for the next bit of serial data.
+It should work (although hasn't been tested) in a mac with a working RTC battery. If desired the EEPROM backup of the settings and time can be disabled via commenting out the definition `ENABLE_EEPROM`.
+
+An effort has been made to limit the EEPROM writes. With only updates being written, and update only being considered when the RTC is marked as read-only by the host. However it isn't clear how long the EEPROM will last in the ATTiny's using this approach. Time will tell.
 
 It's based on the good work by other folks:
 
@@ -54,8 +53,12 @@ See my blog for additional notes on how the software works / its development:
 
 ### Note
 
+The programmer I'm using is a usbasp programmer, search eBay for USBasp, they all seem pretty much the same. Remember to head over to [USBasp](https://www.fischl.de/usbasp/) to drop them a tip. Alternatively any programmer supported by avrdude can be selected via configuration in the CMake file.
+
 As part of setting fuses the reset pin is reconfigured as GPIO.
 
 Once this has been done the only way to re-program the chip is by using high voltage programming.
 
 During development, as a workaround I've been re-assigning one of the unused crystal pins to fullfil the role of the PB5, with the help of a small adapter. Thereby allowing standard ICSP programming with no high voltage funny business required.
+
+After the initial programming I found [this guide](https://www.electronics-lab.com/recover-bricked-attiny-using-arduino-as-high-voltage-programmer/) helpful. Using a spare Arduino and minimal components to rewrite the fuses using HV programming, such that the reset pin is again enabled and regular ICSP programming can be performed again.
