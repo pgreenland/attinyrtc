@@ -19,11 +19,12 @@
 #include <stdbool.h>
 
 /* AVR libraries */
-#include <avr/io.h>
-#include <avr/wdt.h>
-#include <avr/interrupt.h>
 #include <avr/eeprom.h>
+#include <avr/interrupt.h>
+#include <avr/io.h>
 #include <avr/sleep.h>
+#include <avr/wdt.h>
+#include <util/delay.h>
 
 /* Add section for simulator */
 #ifdef BUILD_FOR_SIM
@@ -175,6 +176,12 @@ static const uint8_t uiCounterInc = 2;
 /* One second timer match */
 static const uint8_t uiCounterMatch = 125;
 
+/* Startup delay before beginning to service commands */
+static const uint16_t uiStartupDelayMs = 300;
+
+/* How often to update time in EEPROM */
+static const uint32_t uiSaveClockEverySecs = 60;
+
 /* Macros */
 
 /* Check if inputs are high */
@@ -234,6 +241,7 @@ static const uint8_t uiCounterMatch = 125;
 static void powerSaveInit(void);
 static void gpioInit(void);
 static void timerInit(void);
+static uint32_t snapshotSeconds(void);
 static uint8_t processRegularCmdRead(uint8_t uiAddrBase);
 static void processRegularCmdWrite(uint8_t uiAddrBase, uint8_t uiData);
 static uint8_t processExtendedCmdRead(uint8_t uiAddrBase, uint8_t uiAddrExt);
@@ -295,13 +303,19 @@ int main(void)
 	uSeconds.uiValue = eeprom_read_dword(&uiStoredSeconds);
 #endif
 
+	/* Wait startup delay */
+	_delay_ms(uiStartupDelayMs);
+
 	/* Enable interrupts */
 	sei();
 
-	/* Sleep whenever possible, updating EEPROM if dirty */
+	/* Sleep whenever possible, updating EEPROM if dirty, writing clock periodically */
+	uint32_t uiLastSeconds = snapshotSeconds();
 	for (;;)
 	{
 #ifdef ENABLE_EEPROM
+		uint32_t uiCurrSeconds = snapshotSeconds();
+
 		if (bShadowDirty)
 		{
 			/* Clear dirty flag first in case its set again */
@@ -309,16 +323,15 @@ int main(void)
 
 			/* Update PRAM in EEPROM from shadow in RAM */
 			eeprom_update_block(abyPRAMShadow, abyPRAM, sizeof(abyPRAMShadow));
+		}
 
-			/* Sample clock via repeated read, to avoid having to disable interrupts */
-			uint32_t uiTmpSeconds;
-			do
-			{
-				uiTmpSeconds = uSeconds.uiValue;
-			} while (uiTmpSeconds != uSeconds.uiValue);
+		if ((uiCurrSeconds - uiLastSeconds) >= uiSaveClockEverySecs)
+		{
+			/* Update last clock write time */
+			uiLastSeconds = uiCurrSeconds;
 
 			/* Update clock in EEPROM from RAM */
-			eeprom_update_dword(&uiStoredSeconds, uiTmpSeconds);
+			eeprom_update_dword(&uiStoredSeconds, uiCurrSeconds);
 		}
 #endif
 
@@ -547,6 +560,19 @@ static void timerInit(void)
 
 	/* Enable timer 0 output compare match A interrupt */
 	TIMSK |= _BV(OCIE0A);
+}
+
+static uint32_t snapshotSeconds(void)
+{
+	uint32_t uiSnapshot;
+
+	/* Sample clock via repeated read, to avoid having to disable interrupts */
+	do
+	{
+		uiSnapshot = uSeconds.uiValue;
+	} while (uiSnapshot != uSeconds.uiValue);
+
+	return uiSnapshot;
 }
 
 static inline uint8_t processRegularCmdRead(uint8_t uiAddrBase)
