@@ -179,8 +179,10 @@ static const uint8_t uiCounterMatch = 125;
 /* Startup delay before beginning to service commands */
 static const uint16_t uiStartupDelayMs = 300;
 
+#ifdef ENABLE_EEPROM
 /* How often to update time in EEPROM */
 static const uint32_t uiSaveClockEverySecs = 60;
+#endif
 
 /* Macros */
 
@@ -241,7 +243,9 @@ static const uint32_t uiSaveClockEverySecs = 60;
 static void powerSaveInit(void);
 static void gpioInit(void);
 static void timerInit(void);
+#ifdef ENABLE_EEPROM
 static uint32_t snapshotSeconds(void);
+#endif
 static uint8_t processRegularCmdRead(uint8_t uiAddrBase);
 static void processRegularCmdWrite(uint8_t uiAddrBase, uint8_t uiData);
 static uint8_t processExtendedCmdRead(uint8_t uiAddrBase, uint8_t uiAddrExt);
@@ -309,8 +313,10 @@ int main(void)
 	/* Enable interrupts */
 	sei();
 
+#ifdef ENABLE_EEPROM
 	/* Sleep whenever possible, updating EEPROM if dirty, writing clock periodically */
 	uint32_t uiLastSeconds = snapshotSeconds();
+#endif
 	for (;;)
 	{
 #ifdef ENABLE_EEPROM
@@ -562,6 +568,7 @@ static void timerInit(void)
 	TIMSK |= _BV(OCIE0A);
 }
 
+#ifdef ENABLE_EEPROM
 static uint32_t snapshotSeconds(void)
 {
 	uint32_t uiSnapshot;
@@ -574,6 +581,7 @@ static uint32_t snapshotSeconds(void)
 
 	return uiSnapshot;
 }
+#endif
 
 static inline uint8_t processRegularCmdRead(uint8_t uiAddrBase)
 {
