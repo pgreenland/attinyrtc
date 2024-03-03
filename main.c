@@ -181,10 +181,10 @@ static const uint16_t uiStartupDelayMs = 300;
 
 #ifdef ENABLE_EEPROM
 /* How often to update time in EEPROM */
-static const uint32_t uiSaveClockEverySecs = 60;
+static const uint8_t uiSaveClockEverySecs = 60;
 
 /* Timeout between last write and EEPROM commit */
-static const uint32_t uiWriteTimeoutSecs = 3;
+static const uint8_t uiWriteTimeoutSecs = 3;
 #endif
 
 /* Macros */
@@ -322,15 +322,15 @@ int main(void)
 
 #ifdef ENABLE_EEPROM
 	/* Sleep whenever possible, updating EEPROM if dirty, writing clock periodically */
-	uint32_t uiLastSeconds = snapshotSeconds();
+	uint8_t uiLastTimeWriteSecs = uiSeconds;
 #endif
 	for (;;)
 	{
 #ifdef ENABLE_EEPROM
-		uint32_t uiCurrSeconds = snapshotSeconds();
+		uint8_t uiCurrSecs = uiSeconds;
 
 		if (   bShadowDirty
-			&& ((uiSeconds - uiLastWriteSecs) >= uiWriteTimeoutSecs)
+			&& ((uiCurrSecs - uiLastWriteSecs) >= uiWriteTimeoutSecs)
 		   )
 		{
 			/* Clear dirty flag first in case its set again */
@@ -340,13 +340,13 @@ int main(void)
 			eeprom_update_block(abyPRAMShadow, abyPRAM, sizeof(abyPRAMShadow));
 		}
 
-		if ((uiCurrSeconds - uiLastSeconds) >= uiSaveClockEverySecs)
+		if ((uiCurrSecs - uiLastTimeWriteSecs) >= uiSaveClockEverySecs)
 		{
 			/* Update last clock write time */
-			uiLastSeconds = uiCurrSeconds;
+			uiLastTimeWriteSecs = uiCurrSecs;
 
 			/* Update clock in EEPROM from RAM */
-			eeprom_update_dword(&uiStoredSeconds, uiCurrSeconds);
+			eeprom_update_dword(&uiStoredSeconds, snapshotSeconds());
 		}
 #endif
 
@@ -673,7 +673,7 @@ static inline void processRegularCmdWrite(uint8_t uiAddrBase, uint8_t uiData)
 		abyPRAMShadow[uiFullAddr] = uiData;
 
 #ifdef ENABLE_EEPROM
-		/* Capture seconds counter as last write time */
+		/* Flag shadow dity, updating last write time */
 		bShadowDirty = true;
 		uiLastWriteSecs = uiSeconds;
 #endif
@@ -701,7 +701,7 @@ static inline void processExtendedCmdWrite(uint8_t uiAddrBase, uint8_t uiAddrExt
 	abyPRAMShadow[uiFullAddr] = uiData;
 
 #ifdef ENABLE_EEPROM
-	/* Capture seconds counter as last write time */
+	/* Flag shadow dity, updating last write time */
 	bShadowDirty = true;
 	uiLastWriteSecs = uiSeconds;
 #endif
