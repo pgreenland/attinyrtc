@@ -1,7 +1,7 @@
 /* ------- Config ------- */
 
 /* Enable EEPROM - if defined RTC will backup/restore its data to EEPROM, allowing it to be used in a mac without an RTC battery. Disable for authentic RTC behavior */
-//#define ENABLE_EEPROM
+#define ENABLE_EEPROM
 
 /* Define to have write only test register readable, returning 0xA5 and 0x5A on alternate reads */
 //#define TEST_REG_READ_DUMMY_VALUE
@@ -182,6 +182,9 @@ static const uint16_t uiStartupDelayMs = 300;
 #ifdef ENABLE_EEPROM
 /* How often to update time in EEPROM */
 static const uint32_t uiSaveClockEverySecs = 60;
+
+/* Timeout between last write and EEPROM commit */
+static const uint32_t uiWriteTimeoutSecs = 3;
 #endif
 
 /* Macros */
@@ -261,6 +264,9 @@ static uint8_t abyPRAM[PRAM_SIZE] = {0x00};
 __attribute__((section(".eeprom")))
 static uint32_t uiStoredSeconds = 0;
 
+/* Free running seconds counter 8-bit for timeouts */
+static volatile uint8_t uiSeconds;
+
 #endif
 
 /* PRAM shadow buffer (working copy of EEPROM data in RAM) */
@@ -268,13 +274,14 @@ static uint8_t abyPRAMShadow[PRAM_SIZE];
 
 #ifdef ENABLE_EEPROM
 
-/*
-** Dirty flag - Set when PRAM shadow write protection applied. Ideally this would
-** only be set if a value was written, however this way we get a free flush of the
-** clock when shutting down. The EEPROM is only written if it changes so we should
-** be ok....maybe....hopefully....
-*/
+/* Dirty flag, set whenever shadow registers are written */
 static volatile bool bShadowDirty;
+
+/*
+** Last write time, snapshot of uiSeconds counter above, taken when a write command is issued.
+** uiWriteTimeoutSecs after the last write is issued the shadow will be persisted to EEPROM
+*/
+static volatile uint8_t uiLastWriteSecs;
 
 #endif
 
@@ -322,7 +329,9 @@ int main(void)
 #ifdef ENABLE_EEPROM
 		uint32_t uiCurrSeconds = snapshotSeconds();
 
-		if (bShadowDirty)
+		if (   bShadowDirty
+			&& ((uiSeconds - uiLastWriteSecs) >= uiWriteTimeoutSecs)
+		   )
 		{
 			/* Clear dirty flag first in case its set again */
 			bShadowDirty = false;
@@ -364,6 +373,9 @@ ISR(TIM0_COMPA_vect, ISR_NOBLOCK)
 		if (DDRB & _BV(uiPinOneSec))
 		{
 			uSeconds.uiValue++;
+#ifdef ENABLE_EEPROM
+			uiSeconds++;
+#endif
 		}
 
 		/* Decrement counter */
@@ -650,11 +662,6 @@ static inline void processRegularCmdWrite(uint8_t uiAddrBase, uint8_t uiData)
 		/* Extract new write protect status */
 		bool bNewWriteProtected = mDataByteToWriteProtect(uiData);
 
-#ifdef ENABLE_EEPROM
-		/* Set dirty flag when transitioning from read-write to read-only */
-		if (!bWriteProtected && bNewWriteProtected) bShadowDirty = true;
-#endif
-
 		/* Update write protect flag */
 		bWriteProtected = bNewWriteProtected;
 	}
@@ -664,6 +671,12 @@ static inline void processRegularCmdWrite(uint8_t uiAddrBase, uint8_t uiData)
 	{
 		/* RAM address is within classic low or high range, which maps directly into extended range, store byte */
 		abyPRAMShadow[uiFullAddr] = uiData;
+
+#ifdef ENABLE_EEPROM
+		/* Capture seconds counter as last write time */
+		bShadowDirty = true;
+		uiLastWriteSecs = uiSeconds;
+#endif
 	}
 }
 
@@ -686,4 +699,10 @@ static inline void processExtendedCmdWrite(uint8_t uiAddrBase, uint8_t uiAddrExt
 
 	/* Store data */
 	abyPRAMShadow[uiFullAddr] = uiData;
+
+#ifdef ENABLE_EEPROM
+	/* Capture seconds counter as last write time */
+	bShadowDirty = true;
+	uiLastWriteSecs = uiSeconds;
+#endif
 }
