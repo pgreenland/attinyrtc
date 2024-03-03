@@ -1,7 +1,7 @@
 /* ------- Config ------- */
 
 /* Enable EEPROM - if defined RTC will backup/restore its data to EEPROM, allowing it to be used in a mac without an RTC battery. Disable for authentic RTC behavior */
-#define ENABLE_EEPROM
+//#define ENABLE_EEPROM
 
 /* Define to have write only test register readable, returning 0xA5 and 0x5A on alternate reads */
 //#define TEST_REG_READ_DUMMY_VALUE
