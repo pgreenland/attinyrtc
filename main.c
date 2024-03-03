@@ -286,7 +286,7 @@ static volatile uint8_t uiLastWriteSecs;
 #endif
 
 /* Write protection status */
-static bool bWriteProtected = true;
+static bool bWriteProtected = false;
 
 /* Seconds counter */
 static volatile uSeconds_t uSeconds;
